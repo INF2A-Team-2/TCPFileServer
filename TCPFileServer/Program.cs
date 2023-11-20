@@ -64,8 +64,6 @@ static class Program
                     {
                         data = Encoding.ASCII.GetString(buffer, 0, i);
                         
-                        Console.WriteLine(data);
-                        
                         try
                         {
                             fileData = JsonConvert.DeserializeObject<FileData>(data);
