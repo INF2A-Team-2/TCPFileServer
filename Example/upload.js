@@ -7,10 +7,10 @@ socket.binaryType = "arraybuffer";
 const sendData = () => {
     console.log("Sending data");
 
-    fs.readFile("test.png", (err, data) => {
+    fs.readFile("test.jpg", (err, data) => {
         let d = new TextEncoder().encode(JSON.stringify({
             id: 5,
-            mimeType: "image/png",
+            mimeType: "image/jpg",
             size: data.byteLength,
         }));
         console.log(d);
@@ -31,11 +31,6 @@ socket.on("message", (event) => {
     const textDecoder = new TextDecoder('utf-8');
     const msg = textDecoder.decode(event.data);
     console.log(msg);
-
-    if (msg === "error_json") {
-        console.log("Error occurred, retrying...");
-        sendData();
-    }
 });
 
 socket.on("error", (error) => {
