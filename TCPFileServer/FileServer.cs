@@ -2,7 +2,6 @@ using System.Buffers.Binary;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
-using System.Reflection.Metadata.Ecma335;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Configuration;
