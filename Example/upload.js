@@ -1,47 +1,46 @@
-const fs= require("fs");
-const net = require("net");
+const fs = require("fs");
+const WebSocket = require("ws");
 
-const socket = new net.Socket();
+const socket = new WebSocket("ws://127.0.0.1:11000");
+socket.binaryType = "arraybuffer";
 
-function connect() {
-    socket.connect(11000, "127.0.0.1", () => {
-        sendData();
+const sendData = () => {
+    console.log("Sending data");
+
+    fs.readFile("test.png", (err, data) => {
+        let d = new TextEncoder().encode(JSON.stringify({
+            id: 5,
+            mimeType: "image/png",
+            size: data.byteLength,
+        }));
+        console.log(d);
+        socket.send(d);
+
+        socket.send(data);
     });
-}
 
-socket.on("data", (data) => {
-    const msg = data.toString("ascii");
-    console.log("Message from server ", msg);
+};
 
-    socket.destroy();
+socket.on("open", () => {
+    console.log("opened");
+    sendData();
+});
+
+socket.on("message", (event) => {
+    console.log("message received");
+    const textDecoder = new TextDecoder('utf-8');
+    const msg = textDecoder.decode(event.data);
+    console.log(msg);
 
     if (msg === "error_json") {
-        console.log("Error, retrying...");
-        connect();
+        console.log("Error occurred, retrying...");
+        sendData();
     }
 });
 
-socket.on("error", () => {
-
-})
-
-function sendData()
-{
-    console.log("Sending file...");
-    fs.readFile("test.jpg", (err, data) => {
-        const fileData = {
-            id: 1,
-            mimeType: "image/png",
-            size: data.length,
-            token: ""
-        };
-
-        socket.write(Buffer.from(JSON.stringify(fileData)));
-
-        socket.write(data);
-
-        console.log("Sent file");
-    });
-}
-
-connect();
+socket.on("error", (error) => {
+    console.error(error);
+    const textDecoder = new TextDecoder('utf-8');
+    const msg = textDecoder.decode(error.rawPacket);
+    console.log(msg);
+});
