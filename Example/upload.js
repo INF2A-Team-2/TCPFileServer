@@ -32,7 +32,8 @@ function sendData()
         const fileData = {
             id: 1,
             mimeType: "image/png",
-            size: data.length
+            size: data.length,
+            token: ""
         };
 
         socket.write(Buffer.from(JSON.stringify(fileData)));
