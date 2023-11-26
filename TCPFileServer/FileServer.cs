@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Sockets;
@@ -71,21 +70,32 @@ public class FileServer
         NetworkStream stream = client.GetStream();
 
         byte[] buffer = new byte[int.Parse(_config["BufferSize"] ?? "1048576")];
+        int bufferOffset = 0;
 
         bool handshakePassed = false;
+
         FileData? fileData = null;
         FileStream? fileStream = null;
-        long fileProgress = 0;
-        string filePath = null!;
-        byte[] data;
-        byte[] mask = Array.Empty<byte>();
-        int lastMaskIndex = 3;
-        long fragmentBytesRemaining = 0;
+        int fileProgress = 0;
 
+        Frame? currentFrame = null;
+
+        int i = 0;
         while (true)
         {
-            int i = stream.Read(buffer, 0,  buffer.Length);
-
+            if (bufferOffset == 0)
+            {
+                i = stream.Read(buffer, bufferOffset,  buffer.Length - bufferOffset);
+                Console.WriteLine($"{i} new bytes");
+            }
+            else
+            {
+                buffer = RemoveFirst(buffer, bufferOffset);
+                i -= bufferOffset;
+                
+                Console.WriteLine($"{i} old bytes");
+            }
+            
             if (i == 0)
             {
                 continue;
@@ -102,51 +112,46 @@ public class FileServer
                 continue;
             }
 
-            if (fragmentBytesRemaining > 0)
-            {
-                long bytesToRead = fragmentBytesRemaining;
-                
-                if (fragmentBytesRemaining > i)
-                {
-                    bytesToRead = i;
-                    fragmentBytesRemaining -= i;
-                }
-                else
-                {
-                    fragmentBytesRemaining = 0;
-                }
+            long bytesRemaining;
 
-                data = new byte[bytesToRead];
-                Array.Copy(buffer, 0, data, 0, bytesToRead);
-                Console.WriteLine("BP 1");
-                if (mask.Length == 4)
-                {
-                    (byte[] d, int lmi) = UnmaskData(data, mask, 0, lastMaskIndex);
-                    data = d;
-                    lastMaskIndex = lmi;
-                }
+            if (currentFrame == null || currentFrame.IsComplete)
+            {
+                (currentFrame, bytesRemaining) = Frame.Parse(buffer, i);
+                Console.WriteLine(currentFrame);
             }
             else
             {
-                (byte[] d, byte[] m, int lmi, long payloadLength) = ParseFrame(buffer.Take(i).ToArray(), i);
-                Console.WriteLine("BP 2");
-                data = d;
-                mask = m;
-                lastMaskIndex = lmi;
+                long bytesToAppend = currentFrame.BytesRemaining > i ? i : currentFrame.BytesRemaining;
+                byte[] dataToAppend = new byte[bytesToAppend];
+                Array.Copy(buffer, 0, dataToAppend, 0, bytesToAppend);
+                currentFrame.AppendData(dataToAppend);
 
-                if (payloadLength > i)
-                {
-                    fragmentBytesRemaining = payloadLength - i;
-                }
+                bytesRemaining = bytesToAppend - i;
+
             }
-            
+
+            if (!currentFrame.IsComplete)
+            {
+                bufferOffset = 0;
+                continue;
+            }
+
+            if (bytesRemaining < 0)
+            {
+                bytesRemaining = long.Abs(bytesRemaining);
+                bufferOffset = i - Int64ToInt32(bytesRemaining);
+                Console.WriteLine($"{bytesRemaining} extra");
+            }
+            else
+            {
+                bufferOffset = 0;
+            }
+
             if (fileData == null)
             {
                 Console.WriteLine("Processing file data...");
                 
-                Console.WriteLine(Encoding.UTF8.GetString(data, 0, data.Length));
-                
-                fileData = ParseFileData(Encoding.UTF8.GetString(data, 0, data.Length));
+                fileData = ParseFileData(Encoding.UTF8.GetString(currentFrame.Data));
 
                 if (fileData == null)
                 {
@@ -181,8 +186,8 @@ public class FileServer
                 {
                     Directory.CreateDirectory(_config["DataPath"] ?? "");
                 }
-
-                filePath = Path.Join(_config["DataPath"], $"{fileData.ID}.{FileExtensions[fileData.MimeType]}");
+                
+                string filePath = Path.Join(_config["DataPath"], $"{fileData.ID}.{FileExtensions[fileData.MimeType]}");
 
                 if (File.Exists(filePath))
                 {
@@ -192,9 +197,9 @@ public class FileServer
                 fileStream = new FileStream(filePath, FileMode.CreateNew);
             }
             
-            fileStream.Write(data, 0,  data.Length);
+            fileStream.Write(currentFrame.Data);
             
-            fileProgress += i;
+            fileProgress += currentFrame.Data.Length;
             
             double p = Math.Round((double)fileProgress / fileData.Size * 100);
             
@@ -215,76 +220,8 @@ public class FileServer
             break;
         }
         
-        Console.WriteLine("Connection closed");
         client.Close();
-    }
-
-    public static (byte[]data, byte[] mask, int lastMaskIndex, long payloadLength) ParseFrame(byte[] frame, int length)
-    {
-        byte fin = (byte)((frame[0] & 0b10000000) >> 7);
-        byte rsv1 = (byte)((frame[0] & 0b01000000) >> 6);
-        byte rsv2 = (byte)((frame[0] & 0b00100000) >> 5);
-        byte rsv3 = (byte)((frame[0] & 0b00010000) >> 4);
-        byte opcode = (byte)(frame[0] & 0b00001111);
-        
-        byte mask = (byte)((frame[1] & 0b10000000) >> 7);
-        long payloadLength = frame[1] & 0b01111111;
-        
-        Console.WriteLine("--- Frame ---");
-        Console.WriteLine($"FIN: {fin}");
-        Console.WriteLine($"RSV1: {rsv1}");
-        Console.WriteLine($"RSV2: {rsv2}");
-        Console.WriteLine($"RSV3: {rsv3}");
-        Console.WriteLine($"OPCODE: {opcode}");
-        Console.WriteLine($"MASK: {mask}");
-        
-        int byteOffset = 2;
-
-        if (payloadLength == 126)
-        {
-            payloadLength = BinaryPrimitives.ReadInt16BigEndian(frame.Skip(byteOffset).Take(2).ToArray());
-            byteOffset = 4;
-        } 
-        else if (payloadLength == 127)
-        {
-            payloadLength = BinaryPrimitives.ReadInt64BigEndian(frame.Skip(byteOffset).Take(8).ToArray());
-            byteOffset = 10;
-        }
-        
-        Console.WriteLine($"PAYLOAD LENGTH: {payloadLength}");
-        Console.WriteLine("-------------");
-
-        byte[] maskingKey = Array.Empty<byte>();
-        int lastMaskIndex = 0;
-        
-        if (mask == 1)
-        {
-            maskingKey = frame.Skip(byteOffset).Take(4).ToArray();
-
-            byteOffset += 4;
-
-            (byte[] unmaskedData, int lmi) = UnmaskData(frame, maskingKey, byteOffset);
-            frame = unmaskedData;
-            lastMaskIndex = lmi;
-        }
-        
-        byte[] data = new byte[length - byteOffset];
-        Array.Copy(frame, byteOffset, data, 0, length - byteOffset);
-
-        return (data, maskingKey, lastMaskIndex, payloadLength);
-    }
-
-    public static (byte[] data, int lastMaskIndex) UnmaskData(byte[] data, byte[] mask, int offset = 0, int lastMaskIndex = 3)
-    {
-        int mi = lastMaskIndex + 1;
-        for (long i = 0; i < data.Length - offset; i++)
-        {
-            mi %= 4;
-            data[offset + i] ^= mask[mi];
-            mi++;
-        }
-        
-        return (data, mi - 1);
+        Console.WriteLine("Connection closed");
     }
     
     public static void SendMessage(NetworkStream stream, byte[] message)
@@ -301,7 +238,7 @@ public class FileServer
         {
             return JsonConvert.DeserializeObject<FileData>(data);
         }
-        catch (JsonReaderException e)
+        catch (JsonReaderException)
         {
             return null;
         }
@@ -318,11 +255,6 @@ public class FileServer
         key += "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
                     
         key = Convert.ToBase64String(SHA1.HashData(Encoding.UTF8.GetBytes(key)));
-        
-        string extensions = lines.First(l => l.StartsWith("Sec-WebSocket-Extensions"))
-            .Split(": ")[1]
-            .Split(";")[0]
-            .Trim();
 
         return "HTTP/1.1 101 Switching Protocols\r\n" +
                "Connection: Upgrade\r\n" +
@@ -361,4 +293,33 @@ public class FileServer
 
     public static string ProgressBar(double p) => 
         string.Join("", Enumerable.Range(1, 10).Select(x => p >= x * 10 ? "\u2588" : "\u2591"));
+    
+    public static int Int64ToInt32(long x)
+    {
+        if (x < int.MinValue || x > int.MaxValue)
+        {
+            throw new OverflowException("Value is outside the valid range for int32");
+        }
+
+        return (int)x;
+    }
+    
+    public static T[] RemoveFirst<T>(T[] array, int n)
+    {
+        if (n >= 0 && n <= array.Length)
+        {
+            T[] modifiedArray = new T[array.Length];
+
+            for (int i = 0; i < array.Length - n; i++)
+            {
+                modifiedArray[i] = array[i + n];
+            }
+
+            return modifiedArray;
+        }
+        else
+        {
+            throw new ArgumentOutOfRangeException(nameof(n), "Invalid value of n. It should be between 0 and the length of the array.");
+        }
+    }
 }
