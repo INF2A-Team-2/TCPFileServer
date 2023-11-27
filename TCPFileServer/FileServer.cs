@@ -111,7 +111,13 @@ public class FileServer
                 Console.WriteLine(hs);
                 Console.WriteLine("-------------------------");
 
-                string res = GenerateHandshakeResponse(hs);
+                string? res = GenerateHandshakeResponse(hs);
+
+                if (res == null)
+                {
+                    Console.WriteLine("Invalid handshake");
+                    break;
+                }
 
                 Console.WriteLine("--- Handshake Response ---");
                 Console.WriteLine(res);
@@ -256,9 +262,18 @@ public class FileServer
         }
     }
 
-    public static string GenerateHandshakeResponse(string request)
+    public static string? GenerateHandshakeResponse(string request)
     {
         List<string> lines = request.Split("\n").ToList();
+        
+        string userAgent = lines.First(l => l.StartsWith("User-Agent"))
+            .Split(": ")[1]
+            .Trim();
+
+        if (userAgent.Contains("Let's Encrypt prevalidation check"))
+        {
+            return null;
+        }
                     
         string key = lines.First(l => l.StartsWith("Sec-WebSocket-Key"))
             .Split(": ")[1]
