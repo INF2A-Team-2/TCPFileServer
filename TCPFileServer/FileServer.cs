@@ -104,8 +104,20 @@ public class FileServer
             if (!handshakePassed)
             {
                 Console.WriteLine("Processing handshake...");
+                
+                string hs = Encoding.UTF8.GetString(buffer, 0, i);
+                
+                Console.WriteLine("--- Handshake Request ---");
+                Console.WriteLine(hs);
+                Console.WriteLine("-------------------------");
 
-                SendMessage(stream, GenerateHandshakeResponse(Encoding.UTF8.GetString(buffer, 0, i)));
+                string res = GenerateHandshakeResponse(hs);
+
+                Console.WriteLine("--- Handshake Response ---");
+                Console.WriteLine(res);
+                Console.WriteLine("-------------------------");
+                
+                SendMessage(stream, res);
 
                 handshakePassed = true;
                 
