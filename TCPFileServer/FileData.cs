@@ -7,4 +7,6 @@ public class FileData
     public string MimeType { get; set; }
     public long Size { get; set; }
     public string Token { get; set; }
+
+    public string Extension => Name.Split(".")[^1];
 }

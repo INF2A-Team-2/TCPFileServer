@@ -10,16 +10,6 @@ namespace TCPFileServer;
 
 public class FileServer
 {
-    public static readonly Dictionary<string, string> FileExtensions = new Dictionary<string, string>()
-    {
-        { "image/png", "png" },
-        { "image/jpeg", "jpeg" },
-        { "image/jpg", "jpg" },
-        { "image/gif", "gif" },
-        { "video/mp4", "mp4" },
-        { "application/pdf", "pdf" }
-    };
-
     private readonly IConfiguration _config;
 
     private readonly IPEndPoint _ipEndPoint;
@@ -209,7 +199,7 @@ public class FileServer
                     Directory.CreateDirectory(_config["DataPath"] ?? "");
                 }
                 
-                string filePath = Path.Join(_config["DataPath"], $"{fileData.ID}.{FileExtensions[fileData.MimeType]}");
+                string filePath = Path.Join(_config["DataPath"], $"{fileData.ID}.{fileData.Extension}");
 
                 if (File.Exists(filePath))
                 {
