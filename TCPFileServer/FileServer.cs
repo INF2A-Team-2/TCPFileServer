@@ -15,7 +15,9 @@ public class FileServer
         { "image/png", "png" },
         { "image/jpeg", "jpeg" },
         { "image/jpg", "jpg" },
-        { "video/mp4", "mp4" }
+        { "image/gif", "gif" },
+        { "video/mp4", "mp4" },
+        { "application/pdf", "pdf" }
     };
 
     private readonly IConfiguration _config;
