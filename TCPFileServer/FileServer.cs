@@ -33,7 +33,7 @@ public class FileServer
         this._httpClient = new HttpClient();
     }
 
-    public void Start()
+    public async Task Start()
     {
         try
         {
@@ -45,11 +45,11 @@ public class FileServer
             {
                 Console.WriteLine("Waiting for connection...");
 
-                using TcpClient client = _listener.AcceptTcpClient();
+                using TcpClient client = await _listener.AcceptTcpClientAsync();
 
                 Console.WriteLine("Connected");
 
-                HandleClient(client);
+                await HandleClient(client);
             }
         }
         catch (Exception e)
@@ -63,7 +63,7 @@ public class FileServer
         }
     }
 
-    public void HandleClient(TcpClient client)
+    public async Task HandleClient(TcpClient client)
     {
         Console.WriteLine($"Client IP: {client.Client.RemoteEndPoint}");
         
@@ -123,7 +123,7 @@ public class FileServer
                 Console.WriteLine(res);
                 Console.WriteLine("-------------------------");
                 
-                SendMessage(stream, res);
+                await SendMessageRaw(stream, res);
 
                 handshakePassed = true;
                 
@@ -174,14 +174,16 @@ public class FileServer
                 if (fileData == null)
                 {
                     Console.WriteLine("Invalid file data");
+                    await SendMessage(stream, Frame.Close(ClosingCode.InvalidData, "Invalid file metadata"));
                     break;
                 }
                 
                 Console.WriteLine("Authenticating user...");
                 
-                if (!AuthenticateUser(fileData.ID, fileData.MimeType, fileData.Token))
+                if (!await AuthenticateUser(fileData.ID, fileData.MimeType, fileData.Token))
                 {
                     Console.WriteLine("Authentication failed...");
+                    await SendMessage(stream, Frame.Close(ClosingCode.InvalidData, "Authentication failed"));
                     break;
                 }
                 
@@ -209,6 +211,8 @@ public class FileServer
 
                 if (File.Exists(filePath))
                 {
+                    await SendMessage(stream, Frame.Close(ClosingCode.InvalidData, "File already exists"));
+
                     break;
                 }
 
@@ -235,6 +239,8 @@ public class FileServer
             
             Console.WriteLine("Finished writing data");
             
+            await SendMessage(stream, Frame.Close(ClosingCode.Normal, "File uploaded successfully"));
+            
             break;
         }
         
@@ -242,13 +248,17 @@ public class FileServer
         Console.WriteLine("Connection closed");
     }
     
-    public static void SendMessage(NetworkStream stream, byte[] message)
-    {
-        stream.Write(message, 0, message.Length);
-    }
+    public static async Task SendMessage(NetworkStream stream, byte[] message) => 
+        await stream.WriteAsync(message);
+    
+    public static async Task SendMessage(NetworkStream stream, Frame frame) =>
+        await SendMessage(stream, frame.ToBytes());
 
-    public static void SendMessage(NetworkStream stream, string message) =>
-        SendMessage(stream, Encoding.UTF8.GetBytes(message));
+    public static async Task SendMessage(NetworkStream stream, string message) =>
+        await SendMessage(stream, Frame.Text(message));
+
+    public static async Task SendMessageRaw(NetworkStream stream, string message) =>
+        await SendMessage(stream, Encoding.UTF8.GetBytes(message));
     
     public FileData? ParseFileData(string data)
     {
@@ -289,12 +299,12 @@ public class FileServer
                $"Sec-WebSocket-Accept: {key}\r\n\r\n";
     }
     
-    public bool AuthenticateUser(long attachmentId, string mimeType, string token)
+    public async Task<bool> AuthenticateUser(long attachmentId, string mimeType, string token)
     {
         _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-        HttpResponseMessage res = _httpClient.GetAsync(
-            _config["ServerUrl"] + $"/api/issues/attachments/{attachmentId}/authenticate?mimeType={mimeType}").Result;
+        HttpResponseMessage res = await _httpClient.GetAsync(
+            _config["ServerUrl"] + $"/api/issues/attachments/{attachmentId}/authenticate?mimeType={mimeType}");
 
         return res.StatusCode == HttpStatusCode.OK;
     }

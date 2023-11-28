@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Text;
 
 namespace TCPFileServer;
 
@@ -10,6 +11,18 @@ public enum Opcode
     Close = 8,
     Ping = 9,
     Pong = 10,
+}
+
+public enum ClosingCode
+{
+    Normal = 1000,
+    GoingAway = 1001,
+    ProtocolError = 1002,
+    InvalidData = 1003,
+    InconsistentDataType = 1007,
+    PolicyViolation = 1008,
+    MessageTooLarge = 1009,
+    UnexpectedCondition = 1011
 }
 
 public class Frame
@@ -83,6 +96,54 @@ public class Frame
                                          Payload Length: {PayloadLength:N0}
                                          Data Length: {Data.Length:N0}
                                          """;
+    
+    public byte[] ToBytes()
+    {
+        byte[] statusBytes = new byte[2];
+        
+        statusBytes[0] = 0b00000000;
+
+        if (Fin) statusBytes[0] |= 0b10000000;
+        if (Rsv1) statusBytes[0] |= 0b01000000;
+        if (Rsv2) statusBytes[0] |= 0b00100000;
+        if (Rsv3) statusBytes[0] |= 0b00010000;
+
+        statusBytes[0] |= (byte)Opcode;
+
+        statusBytes[1] = 0b00000000;
+
+        if (HasMask)
+        {
+            statusBytes[1] |= 0b10000000;
+        }
+
+        byte[] lengthBytes;
+
+        switch (PayloadLength)
+        {
+            case <= 125:
+                statusBytes[1] |= (byte)Data.Length;
+                lengthBytes = Array.Empty<byte>();
+                break;
+            case <= ushort.MaxValue:
+                statusBytes[1] |= 126;
+                lengthBytes = BitConverter.GetBytes((ushort)PayloadLength);
+                break;
+            default:
+                statusBytes[1] |= 127;
+                lengthBytes = BitConverter.GetBytes((ulong)PayloadLength);
+                break;
+        }
+
+        byte[] result = new byte[2 + lengthBytes.Length + Mask.Length + PayloadLength];
+        
+        statusBytes.CopyTo(result, 0);
+        lengthBytes.CopyTo(result, 2);
+        Mask.CopyTo(result, 2 + lengthBytes.Length);
+        Data.CopyTo(result, 2 + lengthBytes.Length + Mask.Length);
+
+        return result;
+    }
 
     public static (Frame frame, long bytesRemaining) Parse(byte[] data, int length)
     {
@@ -126,5 +187,37 @@ public class Frame
         frame.AppendData(payload);
 
         return (frame, payloadLength - (length - byteOffset));
+    }
+
+    public static Frame Close(ClosingCode closingCode, string reason)
+    {
+        byte[] codeBytes = BitConverter.GetBytes((ushort)closingCode);
+        byte[] reasonBytes = Encoding.UTF8.GetBytes(reason);
+
+        Frame frame = new Frame(
+            1, 0, 0, 0,
+            (int)Opcode.Close, 
+            codeBytes.Length + reasonBytes.Length,
+            Array.Empty<byte>());
+        
+        frame.AppendData(codeBytes);
+        frame.AppendData(reasonBytes);
+
+        return frame;
+    }
+    
+    public static Frame Text(string data)
+    {
+        byte[] payload = Encoding.UTF8.GetBytes(data);
+
+        Frame frame = new Frame(
+            1, 0, 0, 0,
+            (int)Opcode.Text, 
+            payload.Length,
+            Array.Empty<byte>());
+        
+        frame.AppendData(payload);
+
+        return frame;
     }
 }
