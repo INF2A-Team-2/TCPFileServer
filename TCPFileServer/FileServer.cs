@@ -304,7 +304,7 @@ public class FileServer
         _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         HttpResponseMessage res = await _httpClient.GetAsync(
-            _config["ServerUrl"] + $"/api/issues/attachments/{attachmentId}/authenticate?mimeType={mimeType}");
+            _config["ServerUrl"] + $"/api/attachments/{attachmentId}/authenticate?mimeType={mimeType}");
 
         return res.StatusCode == HttpStatusCode.OK;
     }
