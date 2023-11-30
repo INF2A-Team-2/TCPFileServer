@@ -47,11 +47,6 @@ public class FileServer
         catch (Exception e)
         {
             Console.WriteLine(e);
-            throw;
-        }
-        finally
-        {
-            _listener.Stop();
         }
     }
 
